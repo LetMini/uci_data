@@ -1,0 +1,338 @@
+---
+title: "uci_data"
+author: "Leticia"
+date: "07/11/2022"
+output:
+  html_document: default
+  pdf_document: default
+runtime: shiny
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+```{r include=FALSE}
+
+require(rmarkdown)
+require(tidyverse)
+require(gt)
+require(here)
+require(shiny)
+library(reactable)
+library(reactablefmtr)
+
+
+
+#loading the data in your corrent directory
+#load(here::here("dataset (1).RData"))
+
+load("C:/Users/leticia.barbosa/Downloads/dataset (1).RData")
+
+```
+
+```{r}
+
+data <- dt %>% 
+  mutate(
+    UnitDischargeCode = ifelse(UnitDischargeCode == "D" , 1, 0),
+    # 1 for patients dead at the end of admission and 0 for patients alive
+    Age = as.numeric(Age),
+    UnitLengthStay = as.numeric(UnitLengthStay),
+    IsArterialHypertension = as.numeric(IsArterialHypertension),
+    IsDiabetesComplicated = as.numeric(IsDiabetesComplicated),
+    Isfemale = ifelse(Gender == "F", 1, 0),
+    # 1 for female patients and 0 for male patients
+  ) %>% 
+  na.omit()
+
+
+#Lets use the logistic regression to fit a model that predict values for the response 
+#variable "chance the patient die in the ICU"
+
+fit.logit <- glm(UnitDischargeCode ~ Age + Isfemale + IsArterialHypertension + 
+                   IsDiabetesComplicated + UnitLengthStay,
+                 data = data,family = binomial(link="logit"))
+
+
+
+
+
+```
+
+```{r}
+
+summary(fit.logit)
+```
+
+```{r message=FALSE, warning=FALSE}
+# Criação de novo modelo com base no anterior
+mylogit2=update(fit.logit,~. - Isfemale)
+# 
+anova(fit.logit,mylogit2, test = "Chisq")
+```
+
+
+```{r echo=FALSE}
+
+final.fit <- update(fit.logit,~. - Isfemale)
+
+odds_ratio <- data.frame(exp(cbind(OR=coef(final.fit), confint(final.fit))))
+
+odd <- odds_ratio %>% 
+     mutate(
+       Variabels = c("Intercept" ,"Age", "IsArterialHypertension", "Isdiabetes", "Unit")
+     ) %>% 
+     relocate(
+       Variabels
+     ) %>% 
+     slice(
+       2:5
+     ) %>% 
+     rename(
+       Odds_ratio = OR
+     )
+
+output$odds <- renderTable(odd,
+                           digits = 4)
+
+tableOutput(outputId = "odds")
+
+
+```
+
+
+```{r include=FALSE}
+
+tabela <- data %>% 
+  select(
+    Age,
+    UnitLengthStay,
+    IsArterialHypertension,
+    IsDiabetesComplicated
+  )
+
+
+tabela2 <- data %>% 
+  select(
+    Age,
+    UnitLengthStay,
+    IsArterialHypertension,
+    IsDiabetesComplicated,
+    UnitAdmissionId
+  )
+
+
+
+
+tabela$prob=predict(final.fit, newdata=tabela, type="response")
+
+
+
+```
+
+```{r echo=FALSE}
+inputPanel(
+  selectInput(
+    label = "Age",
+    inputId = "minimo_pontos",
+    choices = tabela$Age %>% unique() %>%  sort(),
+    multiple = TRUE
+   ),
+  
+  selectInput(
+    label = "Days_In_UCI",
+    inputId = "dias",
+    choices = tabela$UnitLengthStay %>% unique() %>%  sort(),
+    multiple = TRUE
+   ),
+  
+  selectInput(
+    label = "Hypertension",
+    inputId = "pressao",
+    choices = tabela$IsArterialHypertension %>% unique() %>%  sort()
+   ),
+  
+  selectInput(
+    label = "Diabetes",
+    inputId = "diabetes",
+    choices = tabela$IsDiabetesComplicated %>% unique() %>%  sort()
+   )
+  
+  
+  
+)
+
+
+
+dados_final <- reactive({
+  
+  
+  tabela %>% 
+    filter(
+      Age %in% input$minimo_pontos | length(input$minimo_pontos) == 0
+    ) %>% 
+    filter(
+      UnitLengthStay %in% input$dias | length(input$dias) == 0
+    ) %>% 
+    filter(
+      IsArterialHypertension %in% input$pressao | length(input$pressao) == 0
+    ) %>% 
+    filter(
+      IsDiabetesComplicated %in% input$diabetes | length(input$diabetes) == 0
+    )
+  
+  #tabela2$prob = predict(final.fit, newdata=tabela2, type="response")
+  
+  #tabela2
+  
+})
+    
+#y <- predict(final.fit, newdata= dados_final, type="response")
+  
+  
+
+```
+
+
+```{r eval=FALSE, include=FALSE}
+diabetesdata <-reactive({with(tabela2,
+                              data.frame(Age=input$minimo_pontos,
+                             UnitLengthStay = input$dias,
+                             IsArterialHypertension = input$pressao,
+                             IsDiabetesComplicated = input$diabetes))
+})
+
+final <- reactive({data.frame(cbind(diabetesdata,predict(final.fit, 
+                                        newdata=diabetesdata,
+                                        type="response")))
+                                        #se.fit=TRUE))
+})
+```
+
+
+
+
+```{r echo=FALSE}
+
+output$tabela <- renderReactable(
+  reactable(
+    dados_final(),
+    columns = list(
+      Age = colDef(
+        name = "idade"
+      ),
+      
+      prob = colDef(
+        name = "prob_dies_UCI",
+        format = colFormat(
+          percent = TRUE, 
+          digits = 2
+        )
+      )
+      
+    )
+    
+  )
+)
+
+
+
+
+reactableOutput(outputId = "tabela")
+
+```
+
+
+
+
+```{r include=FALSE}
+
+#Consider de mean of the variables Age and UnitlengthStay, lets predict the differences 
+#probabilities between the patient that has and do not has diabetes. 
+
+
+fit.diabetes <- glm(UnitDischargeCode ~ Age + UnitLengthStay+
+                    IsDiabetesComplicated,
+                   data = data,family = binomial(link="logit"))
+
+
+# create the table
+diabetesdata=with(data,
+                data.frame(Age=mean(Age),
+                           UnitLengthStay=mean(UnitLengthStay),
+                           IsDiabetesComplicated = c(1,0)))
+
+# Incluind the predict values
+diabetesdata=cbind(diabetesdata,predict(fit.diabetes, 
+                                    newdata=diabetesdata,
+                                    type="response",
+                                    se.fit=TRUE))
+# rename the variabels
+names(diabetesdata)[names(diabetesdata)=='fit']="prob"
+names(diabetesdata)[names(diabetesdata)=='se.fit']="se.prob"
+
+# confiance intervals
+
+diabetesdata$LL=diabetesdata$prob-1.96*diabetesdata$se.prob
+diabetesdata$UL=diabetesdata$prob+1.96*diabetesdata$se.prob
+
+
+require(ggplot2)
+grafico_diabetes <- ggplot(diabetesdata, aes(x=IsDiabetesComplicated,y=prob))+
+  geom_errorbar(aes(ymin=LL, ymax=UL), width=0.2,lty=1,lwd=1, col = "deeppink3")+
+  geom_point(shape=18, size=5, fill="black")+
+  #scale_x_discrete(limits=c("0","1"))+
+  labs(title="Predict probability", x="Has_Diabetes_Or_Not",y="Pr(y=1)")
+
+
+
+
+```
+
+```{r include=FALSE}
+
+# create the table
+
+fit.pressao<- glm(UnitDischargeCode ~ Age + UnitLengthStay+
+                    IsArterialHypertension,
+                   data = data,family = binomial(link="logit"))
+
+
+pressaodata=with(data,
+                data.frame(Age=mean(Age),
+                           UnitLengthStay=mean(UnitLengthStay),
+                           IsArterialHypertension = c(1,0)))
+
+# Incluind the predict values
+pressaodata=cbind(pressaodata,predict(fit.pressao, 
+                                    newdata=pressaodata,
+                                    type="response",
+                                    se.fit=TRUE))
+# rename the variabels
+names(pressaodata)[names(pressaodata)=='fit']="prob"
+names(pressaodata)[names(pressaodata)=='se.fit']="se.prob"
+
+# confiance intervals
+
+pressaodata$LL=pressaodata$prob-1.96*pressaodata$se.prob
+pressaodata$UL=pressaodata$prob+1.96*pressaodata$se.prob
+
+
+require(ggplot2)
+grafico_pressao <- ggplot(pressaodata, aes(x=IsArterialHypertension,y=prob))+
+  geom_errorbar(aes(ymin=LL, ymax=UL), width=0.2,lty=1,lwd=1, col = "cyan4")+
+  geom_point(shape=18, size=5, fill="black")+
+  #scale_x_discrete(limits=c("0","1"))+
+  labs(title="Predict probability", x="Has_pressao_Or_Not",y="Pr(y=1)")
+
+
+
+
+```
+
+```{r echo=FALSE}
+
+cowplot::plot_grid(grafico_diabetes, grafico_pressao)
+```
+
