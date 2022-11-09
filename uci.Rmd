@@ -27,7 +27,9 @@ library(reactablefmtr)
 #loading the data in your corrent directory
 #load(here::here("dataset (1).RData"))
 
-load("C:/Users/leticia.barbosa/Downloads/dataset (1).RData")
+load("~/uci_data/dataset (1).RData")
+
+#load("C:/Users/leticia.barbosa/Downloads/dataset (1).RData")
 
 ```
 
@@ -334,5 +336,78 @@ grafico_pressao <- ggplot(pressaodata, aes(x=IsArterialHypertension,y=prob))+
 ```{r echo=FALSE}
 
 cowplot::plot_grid(grafico_diabetes, grafico_pressao)
+```
+
+```{r include=FALSE}
+
+
+tabela2 <- data %>% 
+  select(
+    Age,
+    UnitLengthStay,
+    IsArterialHypertension,
+    IsDiabetesComplicated
+  ) %>%
+  mutate(
+    Age = mean(Age)
+  )
+
+
+tabela2$prob=predict(final.fit, newdata=tabela2, type="response")
+
+tab_final <- tabela2 %>% 
+    mutate(
+    IsArterialHypertension = ifelse(IsArterialHypertension == 1, "Has_Hypertension", "Has_Not"),
+    IsDiabetesComplicated = ifelse(IsDiabetesComplicated == 1, "Has_Diabetes", "Has_Not")
+  )
+  
+
+
+grafico_diab <- ggplot(tab_final, aes(x=UnitLengthStay,y=prob, color =IsDiabetesComplicated )) +
+  geom_point() +
+  scale_color_manual(values = c("pink", "red"))
+
+
+
+
+grafico_presso <- ggplot(tab_final, aes(x=UnitLengthStay,y=prob, color = IsArterialHypertension ), xlim = 400) +
+  geom_point() +
+  scale_color_manual(values = c("pink", "blue"))
+
+```
+
+```{r}
+
+tabelaidade <- data %>% 
+  select(
+    Age,
+    UnitLengthStay,
+    IsArterialHypertension,
+    IsDiabetesComplicated
+  ) %>%
+  mutate(
+    UnitLengthStay = mean(UnitLengthStay)
+  )
+
+
+tabelaidade$prob=predict(final.fit, newdata=tabelaidade, type="response")
+
+tab_final2 <- tabelaidade %>% 
+    mutate(
+    IsArterialHypertension = ifelse(IsArterialHypertension == 1, "Has_Hypertension", "Has_Not"),
+    IsDiabetesComplicated = ifelse(IsDiabetesComplicated == 1, "Has_Diabetes", "Has_Not")
+  ) %>% 
+  group_by(
+    Age
+  )
+  
+
+
+grafico_diab <- ggplot(tab_final2, aes(x=Age,y=prob, color =IsDiabetesComplicated )) +
+  geom_point() +
+  scale_color_manual(values = c("pink", "red"))
+
+
+
 ```
 
